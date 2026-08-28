@@ -1,6 +1,6 @@
 FROM alpine:3.24 AS spire
 
-ARG SPIRE_VERSION=1.15.2
+ARG SPIRE_VERSION=1.15.3
 ARG TARGETARCH
 RUN apk add --no-cache curl tar && \
     curl -sSL "https://github.com/spiffe/spire/releases/download/v${SPIRE_VERSION}/spire-${SPIRE_VERSION}-linux-${TARGETARCH}-musl.tar.gz" \
