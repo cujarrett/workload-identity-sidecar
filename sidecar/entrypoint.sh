@@ -162,23 +162,32 @@ until [ -S "${SPIFFE_SOCKET}" ]; do
 done
 
 # Either loop can be enabled alone or together - an Api can bind AWS resources,
-# opt into Entra, both, or neither. Backgrounding one and keeping the other in the
-# foreground is enough to hold the container open; `wait` blocks until every
-# backgrounded loop exits, which in practice is never, since both retry forever
-# instead of dying on a failed exchange.
-RUN_AWS=0
-RUN_ENTRA=0
-[ -n "${AWS_BINDINGS:-}" ] && RUN_AWS=1
-[ -n "${ENTRA_FEDERATED_TOKEN_FILE:-}" ] && RUN_ENTRA=1
-
-if [ "${RUN_AWS}" -eq 1 ] && [ "${RUN_ENTRA}" -eq 1 ]; then
+# opt into Entra, both, or neither.
+PIDS=""
+if [ -n "${AWS_BINDINGS:-}" ]; then
   aws_loop &
-  entra_loop
-elif [ "${RUN_AWS}" -eq 1 ]; then
-  aws_loop
-elif [ "${RUN_ENTRA}" -eq 1 ]; then
-  entra_loop
-else
+  PIDS="${PIDS} $!"
+fi
+if [ -n "${ENTRA_FEDERATED_TOKEN_FILE:-}" ]; then
+  entra_loop &
+  PIDS="${PIDS} $!"
+fi
+
+if [ -z "${PIDS# }" ]; then
   log "no bindings configured, nothing to do"
   sleep infinity
 fi
+
+# Both loops retry forever rather than dying on a failed exchange, so a loop that
+# has exited hit something unexpected. Exiting takes the container with it and lets
+# the kubelet restart it - staying up on the surviving loop would leave the other
+# side's credentials silently expiring behind a healthy-looking pod.
+while true; do
+  for PID in ${PIDS}; do
+    if ! kill -0 "${PID}" 2>/dev/null; then
+      log "refresh loop ${PID} exited, stopping container"
+      exit 1
+    fi
+  done
+  sleep 5
+done
