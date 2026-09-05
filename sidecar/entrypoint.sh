@@ -161,8 +161,8 @@ until [ -S "${SPIFFE_SOCKET}" ]; do
   sleep 2
 done
 
-# Either loop can be enabled alone or together - an Api can bind AWS resources,
-# opt into Entra, both, or neither.
+# Any loop can be enabled alone or together - an Api can bind AWS resources, opt into
+# Entra, take ManagedSecrets, any combination, or none.
 PIDS=""
 if [ -n "${AWS_BINDINGS:-}" ]; then
   aws_loop &
@@ -170,6 +170,13 @@ if [ -n "${AWS_BINDINGS:-}" ]; then
 fi
 if [ -n "${ENTRA_FEDERATED_TOKEN_FILE:-}" ]; then
   entra_loop &
+  PIDS="${PIDS} $!"
+fi
+# A separate binary rather than a loop here, because GetSecretValue is SigV4-signed and
+# everything above only ever makes unsigned calls. It runs its own SVID exchange, so it
+# neither waits on aws_loop nor reads the credentials file.
+if [ -n "${SECRET_BINDINGS:-}" ]; then
+  secret-fetcher &
   PIDS="${PIDS} $!"
 fi
 

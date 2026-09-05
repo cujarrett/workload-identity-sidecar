@@ -1,0 +1,4 @@
+.DS_Store
+
+# `just build` output, next to its source
+sidecar/secret-fetcher/secret-fetcher
