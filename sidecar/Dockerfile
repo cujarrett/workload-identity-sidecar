@@ -8,12 +8,23 @@ RUN apk add --no-cache curl tar && \
     tar -xzf /tmp/spire.tar.gz -C /tmp && \
     mv /tmp/spire-${SPIRE_VERSION}/bin/spire-agent /usr/local/bin/spire-agent
 
+# GetSecretValue is SigV4-signed, unlike AssumeRoleWithWebIdentity, so this one call
+# needs a real SDK and cannot be a curl in the shell loop.
+FROM golang:1.26-alpine AS secret-fetcher
+
+WORKDIR /src
+COPY secret-fetcher/go.mod secret-fetcher/go.sum ./
+RUN go mod download
+COPY secret-fetcher/ ./
+RUN CGO_ENABLED=0 go build -o /secret-fetcher .
+
 FROM alpine:3.24
 
 # curl posts the token to STS. AssumeRoleWithWebIdentity is unsigned, so no SDK is needed.
 RUN apk add --no-cache curl
 
 COPY --from=spire /usr/local/bin/spire-agent /usr/local/bin/spire-agent
+COPY --from=secret-fetcher /secret-fetcher /usr/local/bin/secret-fetcher
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
