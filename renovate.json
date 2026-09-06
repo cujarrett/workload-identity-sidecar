@@ -1,5 +1,8 @@
 {
-  "extends": ["config:recommended"],
+  "extends": [
+    "config:recommended",
+    "github>cujarrett/homelab//.github/renovate-shared"
+  ],
   "assignees": ["cujarrett"],
   "minimumReleaseAge": "7 days",
   "customManagers": [
@@ -22,7 +25,8 @@
       "matchPackageNames": ["spiffe/spire"],
       "prBodyNotes": [
         "⚠️ **Before merging:** check this version against the cluster's SPIRE version (`kubectl exec -n spire-server spire-server-0 -- /opt/spire/bin/spire-server --version`). Merging bumps the pinned `spire-agent` binary and rolls affected pods."
-      ]
+      ],
+      "automerge": false
     }
   ]
 }
