@@ -10,7 +10,7 @@ RUN apk add --no-cache curl tar && \
 
 # GetSecretValue is SigV4-signed, unlike AssumeRoleWithWebIdentity, so this one call
 # needs a real SDK and cannot be a curl in the shell loop.
-FROM golang:1.26-alpine AS secret-fetcher
+FROM golang:1.27-alpine AS secret-fetcher
 
 WORKDIR /src
 COPY secret-fetcher/go.mod secret-fetcher/go.sum ./
