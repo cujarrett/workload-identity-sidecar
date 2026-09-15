@@ -18,6 +18,7 @@ Renovate opens a PR automatically when SPIRE cuts a release, tracking `SPIRE_VER
 ## Rules
 
 - Never run `git commit`, `git push`, or any git command that writes to or modifies repository history or remotes.
+- **Never add a `Co-Authored-By` trailer or a "Generated with Claude Code" line** to commit messages or PR descriptions, including in suggested commit messages. Commits are authored by the user alone.
 
 ### Pre-commit safety check
 
