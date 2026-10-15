@@ -1,10 +1,5 @@
 {
-  "extends": [
-    "config:recommended",
-    "github>cujarrett/homelab//.github/renovate-shared"
-  ],
-  "assignees": ["cujarrett"],
-  "minimumReleaseAge": "7 days",
+  "extends": ["github>cujarrett/homelab//.github/renovate-shared"],
   "customManagers": [
     {
       "customType": "regex",
