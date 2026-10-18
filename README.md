@@ -34,7 +34,7 @@ sequenceDiagram
 
 The app container reads credentials from that shared file. It never handles the token, calls AWS directly for credentials, or stores any long-lived secrets.
 
-If a binding's files aren't readable yet or an exchange fails (AWS throttle, transient network blip), the sidecar keeps the previous credentials file untouched - it's still valid for up to an hour - and retries the whole cycle in 30 seconds instead of crashing.
+If a binding's files aren't readable yet or an exchange fails (AWS throttle, transient network blip), the sidecar keeps the previous credentials file untouched - it's still valid for up to an hour - and retries the whole cycle in 30 seconds instead of crashing. Before the first credentials file exists it retries every 2 seconds, because a new IAM role is often refused briefly and the app is waiting.
 
 ### Entra
 

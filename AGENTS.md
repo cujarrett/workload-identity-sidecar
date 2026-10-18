@@ -8,7 +8,7 @@ Sidecar container that exchanges a SPIFFE SVID for short-lived cloud credentials
 
 The sidecar waits for the SPIFFE Workload API socket at `/var/run/secrets/spiffe.io/api.sock` (provided by the SPIFFE CSI driver), then runs up to two independent loops depending on which env vars are set:
 
-- **AWS** (`AWS_BINDINGS` set): fetches a JWT-SVID per cycle, presents it to AWS STS via `AssumeRoleWithWebIdentity` (a plain unsigned HTTPS POST) per binding, and writes named profile sections to a temp file atomically renamed to `CREDS_FILE`. Refreshes every 50 minutes; on a failed exchange it keeps the previous credentials file and retries in 30 seconds.
+- **AWS** (`AWS_BINDINGS` set): fetches a JWT-SVID per cycle, presents it to AWS STS via `AssumeRoleWithWebIdentity` (a plain unsigned HTTPS POST) per binding, and writes named profile sections to a temp file atomically renamed to `CREDS_FILE`. Refreshes every 50 minutes; on a failed exchange it keeps the previous credentials file and retries in 30 seconds, or every 2 seconds until the first credentials are written.
 - **Entra** (`ENTRA_FEDERATED_TOKEN_FILE` set): fetches a JWT-SVID scoped to `api://AzureADTokenExchange` and writes it straight to that file, refreshed every `ENTRA_REFRESH_INTERVAL` seconds (default 240). No exchange call here - the app's Azure SDK (`WorkloadIdentityCredential`) does the `client_assertion` swap itself, reading `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_FEDERATED_TOKEN_FILE`, all injected by the XApi composition.
 
 An Api can enable either, both, or neither.

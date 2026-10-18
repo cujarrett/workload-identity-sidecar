@@ -86,7 +86,7 @@ while true; do
 
   # Loop over each binding and write a named profile section to the credentials file.
   # A failed exchange must not kill the container: the previous credentials file is
-  # still valid for up to an hour, so keep it and retry the whole cycle in 30s.
+  # still valid for up to an hour, so keep it and retry the whole cycle.
   EXCHANGE_FAILED=0
   for PAIR in $(echo "${AWS_BINDINGS}" | tr ',' ' '); do
     BINDING_DIR=${PAIR%%:*}
@@ -143,7 +143,13 @@ PROFILE
 
   if [ "${EXCHANGE_FAILED}" -eq 1 ]; then
     rm -f "${TEMP_FILE}"
-    sleep 30
+    # No credentials yet: a new IAM role is often refused for a few seconds, and the app
+    # waits on this file, so retry fast. Once a file exists it stays valid, so back off.
+    if [ -s "${CREDS_FILE}" ]; then
+      sleep 30
+    else
+      sleep 2
+    fi
     continue
   fi
 
