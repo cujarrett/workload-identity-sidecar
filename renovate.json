@@ -19,7 +19,7 @@
     {
       "matchPackageNames": ["spiffe/spire"],
       "prBodyNotes": [
-        "⚠️ **Before merging:** check this version against the cluster's SPIRE version (`kubectl exec -n spire-server spire-server-0 -- /opt/spire/bin/spire-server --version`). Merging bumps the pinned `spire-agent` binary and rolls affected pods."
+        "⚠️ **Merge only if the cluster's SPIRE server runs `{{{newMajor}}}.{{{newMinor}}}.x` or later.** SPIRE does not support an agent on a newer minor version than its server, and this PR moves the sidecar's `spire-agent` binary to `{{{newVersion}}}`. A patch bump inside the server's minor version is safe.\n\nCheck the server with `kubectl exec -n spire-server spire-server-0 -- /opt/spire/bin/spire-server --version`. If it is older, bump the SPIRE Helm chart in homelab first, then merge this.\n\nMerging rolls every pod that runs the sidecar."
       ],
       "automerge": false
     }
