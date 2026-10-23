@@ -71,7 +71,7 @@ A secret is a value, not a service, so this loop delivers the value itself as fi
 3. Calls `GetSecretValue` and writes each property of the JSON value as its own file in the binding's output directory, atomically and read-only, then a `ready` file last
 4. Repeats every 15 minutes so a rotated value lands without a pod restart; a failed fetch leaves existing files untouched and retries in 30 seconds
 
-A secret created but never given a real value holds a platform-written placeholder. The fetcher recognizes it and writes nothing, logging why. It writes whatever properties the value does carry, so an app is responsible for checking that the ones it needs are there.
+A secret created but never given a value has no version yet. The fetcher writes nothing and logs that it is waiting. It writes whatever properties the value does carry, so an app is responsible for checking that the ones it needs are there.
 
 ```mermaid
 sequenceDiagram

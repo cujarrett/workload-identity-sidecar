@@ -20,11 +20,6 @@ func TestParse(t *testing.T) {
 			want:  map[string]string{"API_TOKEN": "t", "API_SECRET": "s"},
 		},
 		{
-			name:    "placeholder means the owner has not set a value",
-			value:   `{"__unset__":"true"}`,
-			wantErr: "owner has not set one yet",
-		},
-		{
 			name:    "an empty object is not a value",
 			value:   `{}`,
 			wantErr: "holds no properties",

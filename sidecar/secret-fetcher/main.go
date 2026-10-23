@@ -21,15 +21,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
 const (
-	// Matches the placeholder the ManagedSecret composition writes at creation, because
-	// CreateSecret refuses a secret with no value at all. Seeing it means the owner has
-	// not set a real value yet.
-	placeholderKey = "__unset__"
-
 	// Long enough that a rotated value lands without a restart, short enough that nobody
 	// waits a working day for one. The STS credentials behind it last an hour.
 	refreshInterval = 15 * time.Minute
@@ -119,17 +115,13 @@ func sync(ctx context.Context, b binding, audience, socket string) (int, error) 
 	return len(props), writeFile(filepath.Join(b.OutDir, "ready"), "true")
 }
 
-// parse turns a secret's JSON value into properties, refusing a value the owner has not
-// actually set yet so the app blocks rather than starting with a placeholder.
+// parse turns a secret's JSON value into properties.
 func parse(value string) (map[string]string, error) {
 	var props map[string]string
 	if err := json.Unmarshal([]byte(value), &props); err != nil {
 		return nil, fmt.Errorf("secret value is not a flat JSON object: %w", err)
 	}
 
-	if _, unset := props[placeholderKey]; unset {
-		return nil, errors.New("waiting for value - owner has not set one yet")
-	}
 	if len(props) == 0 {
 		return nil, errors.New("waiting for value - secret holds no properties")
 	}
@@ -158,6 +150,11 @@ func fetch(ctx context.Context, b binding, audience, socket string) (string, err
 
 	out, err := secretsmanager.NewFromConfig(cfg).GetSecretValue(ctx,
 		&secretsmanager.GetSecretValueInput{SecretId: aws.String(b.SecretID)})
+	// A ManagedSecret is created with no version, so NotFound until the owner sets one.
+	var notFound *smtypes.ResourceNotFoundException
+	if errors.As(err, &notFound) {
+		return "", errors.New("waiting for value - owner has not set one yet")
+	}
 	if err != nil {
 		return "", fmt.Errorf("getting secret value: %w", err)
 	}
