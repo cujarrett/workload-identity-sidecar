@@ -66,7 +66,7 @@ func TestWriteFileIsAtomicAndReadOnly(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "API_TOKEN")
 
-	if err := writeFile(path, "value"); err != nil {
+	if err := writeFile(path, "value", 0o400); err != nil {
 		t.Fatalf("writeFile: %v", err)
 	}
 
@@ -98,10 +98,10 @@ func TestWriteFileOverwrites(t *testing.T) {
 
 	// A rotated value has to replace the old one, and the first write leaves the file
 	// read-only, so this fails if the rename is ever swapped for a plain write.
-	if err := writeFile(path, "first"); err != nil {
+	if err := writeFile(path, "first", 0o400); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
-	if err := writeFile(path, "second"); err != nil {
+	if err := writeFile(path, "second", 0o400); err != nil {
 		t.Fatalf("second write: %v", err)
 	}
 

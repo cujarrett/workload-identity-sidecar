@@ -5,18 +5,18 @@ on:
     branches: [main]
 
 jobs:
-  # Gates the image build - a sidecar that cannot read a secret should never reach ghcr.
+  # Gates the image build. A sidecar that fails its tests never reaches ghcr.
   test:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: sidecar/secret-fetcher
+        working-directory: sidecar
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v7
         with:
-          go-version-file: sidecar/secret-fetcher/go.mod
+          go-version-file: sidecar/go.mod
 
       - run: go vet ./...
 

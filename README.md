@@ -1,135 +1,99 @@
-# workload-identity-sidecar
+<p align="center">
+  <img src=".github/logo.png" alt="workload-identity-sidecar logo" width="400">
+</p>
 
-Sidecar container that exchanges a [SPIFFE](https://spiffe.io/) SVID for short-lived cloud credentials via OIDC federation. The [XApi](https://github.com/cujarrett/homelab/tree/main/platform/api) Crossplane composition injects this sidecar into pods that declare cloud resource bindings.
+<h1 align="center">workload-identity-sidecar</h1>
+
+A sidecar container that trades a pod's identity for short-lived cloud credentials. No password or long-lived key is involved. The [Api](https://github.com/cujarrett/homelab/tree/main/platform/api) composition adds it to pods that need AWS, Entra or a secret.
 
 ## How it works
 
-Every pod running on this cluster gets a short-lived [SPIFFE JWT-SVID](https://spiffe.io/docs/latest/spiffe-about/spiffe-concepts/#svid) from the SPIRE agent. Think of it as a cryptographic identity badge for the pod - it proves *which workload* is running without any passwords or API keys.
+SPIRE gives every pod a short-lived signed token, called a JWT-SVID. It proves which pod is running. Each cloud trusts SPIRE's signing keys, so the sidecar can trade that token for real credentials.
 
-When an app needs AWS credentials (e.g. to talk to S3 or DynamoDB), the XApi Crossplane composition adds this sidecar to the pod alongside the app. The sidecar:
+The sidecar is one Go binary. It gets tokens from the local SPIRE agent over the Workload API socket.
 
-1. Waits for the SPIFFE Workload API socket to be available at startup
-2. Asks this cluster's own SPIRE agent for a JWT-SVID, over that socket - a purely local call, nothing leaves the cluster yet
-3. Presents that token to AWS STS via `sts:AssumeRoleWithWebIdentity`, once per binding - this is the first point AWS is contacted, and the only place the token itself ever leaves the cluster
-4. Receives short-lived STS credentials (access key + secret + session token) in return
-5. Writes those credentials into a shared file as named profiles - one per AWS binding
-6. Sleeps 50 minutes, then repeats (credentials expire after 1 hour)
+The sidecar runs up to four loops. Each env var below turns one on. A pod can use any mix of them.
 
-```mermaid
-sequenceDiagram
-    participant App as App container
-    participant Sidecar
-    participant SPIRE as SPIRE agent (local)
-    participant STS as AWS STS (cloud)
+| Loop | Turned on by | What the app gets |
+|---|---|---|
+| AWS | `AWS_BINDINGS` | An AWS credentials file |
+| Entra | `ENTRA_FEDERATED_TOKEN_FILE` | A token file the Azure SDK trades itself |
+| Token Secret | `TOKEN_SECRET_NAME` | An Entra access token in a Kubernetes Secret |
+| Secrets | `SECRET_BINDINGS` | A secret's value, one file per property |
 
-    Sidecar->>SPIRE: fetch JWT-SVID (aud=sts.amazonaws.com)
-    SPIRE-->>Sidecar: JWT-SVID
-    Sidecar->>STS: AssumeRoleWithWebIdentity(token)
-    STS-->>Sidecar: access key + secret + session token
-    Sidecar->>Sidecar: write profile to CREDS_FILE
-    App->>App: read CREDS_FILE (shared volume)
-```
+## AWS
 
-`sts:AssumeRoleWithWebIdentity` needs no request signing, because the token is itself the credential. AWS verifies it by fetching the signing keys from the OIDC issuer published by the cluster and checking the signature, the `sub` claim and the `aud` claim. That is why the exchange is a plain HTTPS POST, made with `curl`.
+The sidecar writes temporary AWS credentials to a shared file.
 
-The app container reads credentials from that shared file. It never handles the token, calls AWS directly for credentials, or stores any long-lived secrets.
+- **Token:** it asks the local SPIRE agent for a token with the audience `sts.amazonaws.com`. Nothing leaves the cluster yet.
+- **Trade:** it sends the token to AWS STS (`AssumeRoleWithWebIdentity`), once per binding.
+- **Write:** it writes the credentials to `CREDS_FILE`, one named profile per binding.
+- **Refresh:** every 50 minutes. The credentials last 1 hour.
+- **Failure:** it keeps the old file and retries in 30 seconds. Before the first file exists, it retries every 2 seconds.
 
-If a binding's files aren't readable yet or an exchange fails (AWS throttle, transient network blip), the sidecar keeps the previous credentials file untouched - it's still valid for up to an hour - and retries the whole cycle in 30 seconds instead of crashing. Before the first credentials file exists it retries every 2 seconds, because a new IAM role is often refused briefly and the app is waiting.
+The STS call needs no signing, because the token is the proof.
 
-### Entra
+## Entra
 
-Entra needs no exchange call in this sidecar at all - the Azure SDK's `WorkloadIdentityCredential` does the `client_assertion` swap itself, on demand, the same contract Azure Kubernetes Service (AKS) uses natively. This sidecar's only job is keeping one file - `ENTRA_FEDERATED_TOKEN_FILE` - holding a fresh, unexchanged SVID:
+The sidecar keeps a fresh SPIRE token in a file. The app's Azure SDK trades it with Entra itself, the same way Azure Kubernetes Service works.
 
-1. Asks this cluster's own SPIRE agent for a JWT-SVID - the same local call the AWS loop makes, just requesting the audience `api://AzureADTokenExchange` instead of `STS_AUDIENCE`. Entra is not contacted here; this step is entirely local to the cluster.
-2. Writes that token as-is to `ENTRA_FEDERATED_TOKEN_FILE`. No exchange happens yet - Entra only sees this token later, when the app's own SDK presents it.
-3. Repeats every `ENTRA_REFRESH_INTERVAL` seconds (default 240) to stay ahead of SPIRE's 5-minute JWT-SVID expiry.
+- **Token:** it asks SPIRE for a token with the audience `api://AzureADTokenExchange`.
+- **Write:** it writes the token as-is to `ENTRA_FEDERATED_TOKEN_FILE`.
+- **Refresh:** every 240 seconds. SPIRE tokens last 5 minutes.
 
-```mermaid
-sequenceDiagram
-    participant App as App container (Azure SDK)
-    participant Sidecar
-    participant SPIRE as SPIRE agent (local)
-    participant Entra as Microsoft Entra (cloud)
+The app's SDK reads `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_FEDERATED_TOKEN_FILE`. The Api composition sets all three. The sidecar never sees the access token.
 
-    Sidecar->>SPIRE: fetch JWT-SVID (aud=api://AzureADTokenExchange)
-    SPIRE-->>Sidecar: JWT-SVID
-    Sidecar->>Sidecar: write raw token to ENTRA_FEDERATED_TOKEN_FILE
-    Note over Sidecar: sidecar's job ends here - it never talks to Entra
-    App->>App: read ENTRA_FEDERATED_TOKEN_FILE (shared volume)
-    App->>Entra: client_assertion exchange (token)
-    Entra-->>App: real access token
-```
+## Token Secret
 
-The app container's Azure SDK reads `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_FEDERATED_TOKEN_FILE` - all three injected by the XApi composition - and exchanges the token for a real access token itself, whenever it needs one. This sidecar never sees that access token.
+Some controllers read their credential only from a Kubernetes Secret, such as [Temporal's Worker Controller](https://docs.temporal.io/production-deployment/worker-deployments/kubernetes-controller). This loop keeps an Entra access token in one.
 
-### Secrets
+- **Token:** it asks SPIRE for a token with the audience `api://AzureADTokenExchange`.
+- **Trade:** it sends the token to Entra and gets an access token for `TOKEN_SCOPE`.
+- **Write:** it patches the access token into Secret `TOKEN_SECRET_NAME`, in the pod's own namespace.
+- **Refresh:** every 45 minutes. Entra access tokens last 60 to 90 minutes.
 
-A secret is a value, not a service, so this loop delivers the value itself as files. `secret-fetcher`, a Go binary in this image, runs it:
+The Secret must already exist. The pod's service account needs `patch` on that one Secret.
 
-1. Reads `role-arn`, `secret-id` and `region` from each binding directory named in `SECRET_BINDINGS`
-2. Fetches its own JWT-SVID and calls `AssumeRoleWithWebIdentity`, one role per binding, the same trust model as the AWS loop
-3. Calls `GetSecretValue` and writes each property of the JSON value as its own file in the binding's output directory, atomically and read-only, then a `ready` file last
-4. Repeats every 15 minutes so a rotated value lands without a pod restart; a failed fetch leaves existing files untouched and retries in 30 seconds
+## Secrets
 
-A secret created but never given a value has no version yet. The fetcher writes nothing and logs that it is waiting. It writes whatever properties the value does carry, so an app is responsible for checking that the ones it needs are there.
+The sidecar fetches a secret's value and writes it as files.
 
-```mermaid
-sequenceDiagram
-    participant App as App container
-    participant SF as secret-fetcher
-    participant SPIRE as SPIRE agent (local)
-    participant STS as AWS STS (cloud)
-    participant SM as Secrets Manager (cloud)
+- **Read:** it reads `role-arn`, `secret-id` and `region` from each binding directory.
+- **Trade:** it trades its own SPIRE token for AWS credentials, one role per binding.
+- **Write:** it calls `GetSecretValue` and writes each property as its own file. It writes a `ready` file last.
+- **Refresh:** every 15 minutes, so a rotated value arrives without a restart.
+- **Failure:** it keeps the old files and retries in 30 seconds.
 
-    loop every 15m, or 30s after a failure
-        SF->>SPIRE: fetch JWT-SVID (aud=sts.amazonaws.com)
-        SPIRE-->>SF: JWT-SVID
-        SF->>STS: AssumeRoleWithWebIdentity(token, role-arn)
-        STS-->>SF: scoped credentials
-        SF->>SM: GetSecretValue(secret-id)
-        SM-->>SF: JSON value
-        SF->>SF: write one file per property, then ready
-    end
-    App->>App: read /secrets/<name>/<key>
-```
-
-An Api can set any combination of `AWS_BINDINGS`, `ENTRA_FEDERATED_TOKEN_FILE`, and `SECRET_BINDINGS` - all three loops run independently and concurrently when configured.
-
-## Platform context
-
-This helper is the runtime component that connects the pieces of my [platform](https://github.com/cujarrett/homelab/tree/main/platform) together:
-
-- **Crossplane** provisions AWS resources and IAM roles.
-- **SPIRE** proves the workload's identity with a SPIFFE SVID.
-- **This helper** exchanges that identity for temporary AWS credentials.
-- **The AWS SDK** consumes those credentials transparently on a resource binding. On a secret binding this helper spends them itself and hands the app files.
-
-That separation is what makes the developer experience clean: developers declare that they need an AWS capability, while the platform handles identity, authorization, credential acquisition, and rotation behind the scenes.
+A secret with no value yet has nothing to write, so the fetcher waits. It writes every property the value has. The app checks that the ones it needs are there.
 
 ## Environment variables
 
 | Variable | Description |
 |---|---|
-| `AWS_BINDINGS` | Comma-separated `mountPath:profile` pairs (e.g. `/bindings/object-storage:object-storage,/bindings/nosql:nosql`) |
-| `CREDS_FILE` | Output path for the AWS credentials file (e.g. `/aws-credentials/credentials`) |
-| `STS_AUDIENCE` | Audience requested for the JWT-SVID, default `sts.amazonaws.com`. Must match a client id registered on the AWS OIDC identity provider, or STS rejects the token. |
-| `STS_ENDPOINT` | STS endpoint, default `https://sts.us-east-1.amazonaws.com`. Regional because the mesh egress allowlist permits only that host. |
-| `ENTRA_FEDERATED_TOKEN_FILE` | Output path for the raw Entra JWT-SVID (e.g. `/entra-identity/token`). Setting this enables the Entra loop. |
-| `ENTRA_AUDIENCE` | Audience requested for the Entra JWT-SVID, default `api://AzureADTokenExchange`. Fixed by Microsoft. |
+| `AWS_BINDINGS` | Comma-separated `mountPath:profile` pairs, such as `/bindings/nosql:nosql`. Turns on the AWS loop. |
+| `CREDS_FILE` | Where the AWS credentials file goes, such as `/aws-credentials/credentials`. |
+| `STS_AUDIENCE` | Token audience for AWS, default `sts.amazonaws.com`. It must match a client ID on the AWS identity provider. |
+| `STS_ENDPOINT` | STS endpoint, default `https://sts.us-east-1.amazonaws.com`. The mesh only allows this regional host. |
+| `ENTRA_FEDERATED_TOKEN_FILE` | Where the Entra token file goes, such as `/entra-identity/token`. Turns on the Entra loop. |
+| `ENTRA_AUDIENCE` | Token audience for Entra, default `api://AzureADTokenExchange`. Microsoft sets this value. |
 | `ENTRA_REFRESH_INTERVAL` | Seconds between Entra token refreshes, default `240`. |
-| `SECRET_BINDINGS` | Comma-separated `bindingDir:outputDir` pairs (e.g. `/bindings/managed-secret-orders:/secrets/orders`). Two paths because the binding is a read-only Secret volume and the fetched value needs somewhere writable to land. Setting this enables the secret loop. |
-| `SPIFFE_SOCKET` | Workload API socket path used by the secret loop, default `/var/run/secrets/spiffe.io/api.sock`. |
+| `TOKEN_SECRET_NAME` | Secret that gets an Entra access token. Turns on the Token Secret loop. Needs `TOKEN_SCOPE`, `AZURE_CLIENT_ID` and `AZURE_TENANT_ID`. |
+| `TOKEN_SECRET_KEY` | Key in that Secret, default `token`. |
+| `TOKEN_SCOPE` | Entra scope for the access token, such as `api://<tenant>/platform-temporal/.default`. |
+| `TOKEN_REFRESH_INTERVAL` | Seconds between access token refreshes, default `2700`. |
+| `SECRET_BINDINGS` | Comma-separated `bindingDir:outputDir` pairs, such as `/bindings/managed-secret-orders:/secrets/orders`. The binding is read-only, so the value needs a second, writable path. Turns on the Secrets loop. |
+| `SPIFFE_SOCKET` | SPIRE socket path, default `/var/run/secrets/spiffe.io/api.sock`. |
 
 ## Volumes expected
 
 | Mount | Contents |
 |---|---|
-| `/var/run/secrets/spiffe.io/` | SPIFFE Workload API socket (`api.sock`), provided by the SPIFFE CSI driver. The sidecar fetches a JWT-SVID from it each cycle. |
-| Each binding `mountPath` | `role-arn` from the Crossplane binding Secret |
-| `dirname($CREDS_FILE)` | Writable emptyDir shared with app containers |
-| `dirname($ENTRA_FEDERATED_TOKEN_FILE)` | Writable emptyDir shared with app containers |
-| Each `SECRET_BINDINGS` binding dir | `role-arn`, `secret-id` and `region` from the Crossplane binding Secret, read-only |
-| Each `SECRET_BINDINGS` output dir | Writable emptyDir shared with app containers, where the value's properties are written one file per key |
+| `/var/run/secrets/spiffe.io/` | The SPIRE socket, `api.sock`, from the SPIFFE CSI driver. |
+| Each AWS binding `mountPath` | `role-arn`, from the binding Secret. |
+| Folder of `CREDS_FILE` | A writable emptyDir shared with the app. |
+| Folder of `ENTRA_FEDERATED_TOKEN_FILE` | A writable emptyDir shared with the app. |
+| Each `SECRET_BINDINGS` binding folder | `role-arn`, `secret-id` and `region`, from the binding Secret, read-only. |
+| Each `SECRET_BINDINGS` output folder | A writable emptyDir shared with the app. Holds one file per property. |
 
 ## Credentials file format
 
@@ -145,7 +109,7 @@ aws_secret_access_key = REDACTED
 aws_session_token = REDACTED
 ```
 
-App containers point `AWS_SHARED_CREDENTIALS_FILE` at this file and select a profile via `AWS_PROFILE_<BINDING>` env vars - both injected by the XApi composition.
+The app finds this file through `AWS_SHARED_CREDENTIALS_FILE`. It picks a profile with `AWS_PROFILE_<BINDING>`. The Api composition sets both.
 
 ## Image
 
@@ -153,8 +117,4 @@ App containers point `AWS_SHARED_CREDENTIALS_FILE` at this file and select a pro
 ghcr.io/cujarrett/workload-identity-sidecar:main
 ```
 
-Built by CI on every push to `main`. ARM64 only (Raspberry Pi 5 nodes).
-
-## Updating binaries
-
-Renovate opens a PR when SPIRE cuts a release, tracking `SPIRE_VERSION` in `sidecar/Dockerfile`. The PR carries a reminder to check it against the cluster's running version before merging.
+CI builds it on every push to `main`. ARM64 only, for the Raspberry Pi 5 nodes.

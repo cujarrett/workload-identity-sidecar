@@ -1,19 +1,25 @@
 # workload-identity-sidecar
 
-Sidecar container that exchanges a SPIFFE SVID for short-lived cloud credentials. The `ghcr.io/cujarrett/workload-identity-sidecar` image is built by CI in this repo and injected into [XApi](https://github.com/cujarrett/homelab/tree/main/platform/api) pods by the XApi Crossplane composition when the pod declares cloud resource bindings.
+A sidecar container that trades a pod's SPIFFE identity for short-lived cloud credentials. CI builds `ghcr.io/cujarrett/workload-identity-sidecar`. The homelab [Api](https://github.com/cujarrett/homelab/tree/main/platform/api) composition adds it to pods that need AWS, Entra or a secret.
 
 ## Sidecar
 
-`sidecar/Dockerfile` builds `ghcr.io/cujarrett/workload-identity-sidecar`. It installs `spire-agent` (ARM64 binary) and runs `sidecar/entrypoint.sh`.
+One Go binary, built from `sidecar/` by `sidecar/Dockerfile`. It talks to the SPIRE agent's Workload API socket with `go-spiffe`. The README has the full behaviour.
 
-The sidecar waits for the SPIFFE Workload API socket at `/var/run/secrets/spiffe.io/api.sock` (provided by the SPIFFE CSI driver), then runs up to two independent loops depending on which env vars are set:
+It waits for the socket at `/var/run/secrets/spiffe.io/api.sock`, then runs each loop whose env var is set:
 
-- **AWS** (`AWS_BINDINGS` set): fetches a JWT-SVID per cycle, presents it to AWS STS via `AssumeRoleWithWebIdentity` (a plain unsigned HTTPS POST) per binding, and writes named profile sections to a temp file atomically renamed to `CREDS_FILE`. Refreshes every 50 minutes; on a failed exchange it keeps the previous credentials file and retries in 30 seconds, or every 2 seconds until the first credentials are written.
-- **Entra** (`ENTRA_FEDERATED_TOKEN_FILE` set): fetches a JWT-SVID scoped to `api://AzureADTokenExchange` and writes it straight to that file, refreshed every `ENTRA_REFRESH_INTERVAL` seconds (default 240). No exchange call here - the app's Azure SDK (`WorkloadIdentityCredential`) does the `client_assertion` swap itself, reading `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_FEDERATED_TOKEN_FILE`, all injected by the XApi composition.
+- **AWS** (`AWS_BINDINGS`, `aws.go`): trades a JWT-SVID with STS per binding and writes `CREDS_FILE`.
+- **Entra** (`ENTRA_FEDERATED_TOKEN_FILE`, `entra.go`): writes a fresh JWT-SVID for the app's Azure SDK to trade.
+- **Token Secret** (`TOKEN_SECRET_NAME`, `tokensecret.go`): trades a JWT-SVID with Entra and patches the access token into a Secret.
+- **Secrets** (`SECRET_BINDINGS`, `secrets.go`): fetches a ManagedSecret's value and writes one file per property.
 
-An Api can enable either, both, or neither.
+The image stays on Alpine, because the Api composition's startup probe runs `sh` in it.
 
-Renovate opens a PR automatically when SPIRE cuts a release, tracking `SPIRE_VERSION` in `sidecar/Dockerfile`. The PR carries a reminder to check it against the cluster's running version before merging.
+Go conventions:
+
+- `just ci` runs lint, test and build. Run it before pushing.
+- Standard library first. The AWS SDK and `go-spiffe` are the only dependencies.
+- Each loop takes its SVID fetcher as a field, so tests run without SPIRE.
 
 ## Rules
 

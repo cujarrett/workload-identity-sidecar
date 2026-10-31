@@ -10,13 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: sidecar/secret-fetcher
+        working-directory: sidecar
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v7
         with:
-          go-version-file: sidecar/secret-fetcher/go.mod
+          go-version-file: sidecar/go.mod
 
       - run: go mod tidy -diff
 
