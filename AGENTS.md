@@ -10,7 +10,6 @@ It waits for the socket at `/var/run/secrets/spiffe.io/api.sock`, then runs each
 
 - **AWS** (`AWS_BINDINGS`, `aws.go`): trades a JWT-SVID with STS per binding and writes `CREDS_FILE`.
 - **Entra** (`ENTRA_FEDERATED_TOKEN_FILE`, `entra.go`): writes a fresh JWT-SVID for the app's Azure SDK to trade.
-- **Token Secret** (`TOKEN_SECRET_NAME`, `tokensecret.go`): trades a JWT-SVID with Entra and patches the access token into a Secret.
 - **Secrets** (`SECRET_BINDINGS`, `secrets.go`): fetches a ManagedSecret's value and writes one file per property.
 
 The image stays on Alpine, because the Api composition's startup probe runs `sh` in it.

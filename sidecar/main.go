@@ -39,15 +39,6 @@ func main() {
 		loops = append(loops, l.run)
 	}
 
-	if name := os.Getenv("TOKEN_SECRET_NAME"); name != "" {
-		l, err := newTokenSecretLoop(name, entraAudience, logger, fetchSVID)
-		if err != nil {
-			logger.Error("cannot start the token secret loop", "error", err)
-			os.Exit(1)
-		}
-		loops = append(loops, l.run)
-	}
-
 	if v := os.Getenv("SECRET_BINDINGS"); v != "" {
 		l, err := newSecretsLoop(v, logger, fetchSVID)
 		if err != nil {

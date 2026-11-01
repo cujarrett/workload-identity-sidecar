@@ -12,13 +12,12 @@ SPIRE gives every pod a short-lived signed token, called a JWT-SVID. It proves w
 
 The sidecar is one Go binary. It gets tokens from the local SPIRE agent over the Workload API socket.
 
-The sidecar runs up to four loops. Each env var below turns one on. A pod can use any mix of them.
+The sidecar runs up to three loops. Each env var below turns one on. A pod can use any mix of them.
 
 | Loop | Turned on by | What the app gets |
 |---|---|---|
 | AWS | `AWS_BINDINGS` | An AWS credentials file |
 | Entra | `ENTRA_FEDERATED_TOKEN_FILE` | A token file the Azure SDK trades itself |
-| Token Secret | `TOKEN_SECRET_NAME` | An Entra access token in a Kubernetes Secret |
 | Secrets | `SECRET_BINDINGS` | A secret's value, one file per property |
 
 ## AWS
@@ -43,17 +42,6 @@ The sidecar keeps a fresh SPIRE token in a file. The app's Azure SDK trades it w
 
 The app's SDK reads `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_FEDERATED_TOKEN_FILE`. The Api composition sets all three. The sidecar never sees the access token.
 
-## Token Secret
-
-Some controllers read their credential only from a Kubernetes Secret, such as [Temporal's Worker Controller](https://docs.temporal.io/production-deployment/worker-deployments/kubernetes-controller). This loop keeps an Entra access token in one.
-
-- **Token:** it asks SPIRE for a token with the audience `api://AzureADTokenExchange`.
-- **Trade:** it sends the token to Entra and gets an access token for `TOKEN_SCOPE`.
-- **Write:** it patches the access token into Secret `TOKEN_SECRET_NAME`, in the pod's own namespace.
-- **Refresh:** every 45 minutes. Entra access tokens last 60 to 90 minutes.
-
-The Secret must already exist. The pod's service account needs `patch` on that one Secret.
-
 ## Secrets
 
 The sidecar fetches a secret's value and writes it as files.
@@ -77,10 +65,6 @@ A secret with no value yet has nothing to write, so the fetcher waits. It writes
 | `ENTRA_FEDERATED_TOKEN_FILE` | Where the Entra token file goes, such as `/entra-identity/token`. Turns on the Entra loop. |
 | `ENTRA_AUDIENCE` | Token audience for Entra, default `api://AzureADTokenExchange`. Microsoft sets this value. |
 | `ENTRA_REFRESH_INTERVAL` | Seconds between Entra token refreshes, default `240`. |
-| `TOKEN_SECRET_NAME` | Secret that gets an Entra access token. Turns on the Token Secret loop. Needs `TOKEN_SCOPE`, `AZURE_CLIENT_ID` and `AZURE_TENANT_ID`. |
-| `TOKEN_SECRET_KEY` | Key in that Secret, default `token`. |
-| `TOKEN_SCOPE` | Entra scope for the access token, such as `api://<tenant>/platform-temporal/.default`. |
-| `TOKEN_REFRESH_INTERVAL` | Seconds between access token refreshes, default `2700`. |
 | `SECRET_BINDINGS` | Comma-separated `bindingDir:outputDir` pairs, such as `/bindings/managed-secret-orders:/secrets/orders`. The binding is read-only, so the value needs a second, writable path. Turns on the Secrets loop. |
 | `SPIFFE_SOCKET` | SPIRE socket path, default `/var/run/secrets/spiffe.io/api.sock`. |
 
