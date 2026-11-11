@@ -6,7 +6,7 @@ RUN go mod download
 COPY *.go ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /workload-identity-sidecar .
 
-FROM ghcr.io/cujarrett/base-go:static-debian13@sha256:923a9853189eef3956ae9cd09aa9d5846f9f0568e0b188ec1415d43754a736b2
+FROM ghcr.io/cujarrett/base-go:static-debian13@sha256:d1f5d2a974de81dffc620668df57baf021f1dab8d8b90968428dd00d20a3a090
 
 COPY --from=builder /workload-identity-sidecar /usr/local/bin/workload-identity-sidecar
 
