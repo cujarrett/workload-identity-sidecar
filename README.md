@@ -54,6 +54,8 @@ The sidecar fetches a secret's value and writes it as files.
 
 A secret with no value yet has nothing to write, so the fetcher waits. It writes every property the value has. The app checks that the ones it needs are there.
 
+The pod's startup probe runs `workload-identity-sidecar ready <file>...`. It passes once every named `ready` file exists, so the app never starts against an empty `/secrets` directory.
+
 ## Environment variables
 
 | Variable | Description |

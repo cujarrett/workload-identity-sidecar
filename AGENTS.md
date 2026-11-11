@@ -12,7 +12,7 @@ It waits for the socket at `/var/run/secrets/spiffe.io/api.sock`, then runs each
 - **Entra** (`ENTRA_FEDERATED_TOKEN_FILE`, `entra.go`): writes a fresh JWT-SVID for the app's Azure SDK to trade.
 - **Secrets** (`SECRET_BINDINGS`, `secrets.go`): fetches a ManagedSecret's value and writes one file per property.
 
-The image stays on Alpine, because the Api composition's startup probe runs `sh` in it.
+The Api composition's startup probe runs `workload-identity-sidecar ready <file>...`, so the image needs no shell.
 
 Go conventions:
 
