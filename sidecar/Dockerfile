@@ -6,13 +6,8 @@ RUN go mod download
 COPY *.go ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /workload-identity-sidecar .
 
-# Alpine, not distroless, because the Api composition's startup probe runs sh in this container.
-FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+FROM ghcr.io/cujarrett/base-go:static-debian13@sha256:923a9853189eef3956ae9cd09aa9d5846f9f0568e0b188ec1415d43754a736b2
 
 COPY --from=builder /workload-identity-sidecar /usr/local/bin/workload-identity-sidecar
-
-RUN addgroup -S app && adduser -S app -G app
-# Numeric, not the name. The kubelet cannot verify runAsNonRoot for a user it cannot resolve.
-USER 100
 
 ENTRYPOINT ["/usr/local/bin/workload-identity-sidecar"]
