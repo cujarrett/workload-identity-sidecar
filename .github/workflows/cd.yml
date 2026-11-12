@@ -24,31 +24,16 @@ jobs:
 
   build-and-push-sidecar:
     needs: test
-    runs-on: ubuntu-26.04-arm
-
     permissions:
       contents: read
       packages: write
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: docker/setup-buildx-action@v4
-
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/build-push-action@v7
-        with:
-          context: sidecar
-          platforms: linux/arm64
-          sbom: true
-          push: true
-          tags: |
-            ghcr.io/cujarrett/workload-identity-sidecar:main
-            ghcr.io/cujarrett/workload-identity-sidecar:sha-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      id-token: write
+      attestations: write
+    uses: cujarrett/homelab/.github/workflows/build-image.yml@main
+    with:
+      image: ghcr.io/cujarrett/workload-identity-sidecar
+      tags: |
+        ghcr.io/cujarrett/workload-identity-sidecar:main
+        ghcr.io/cujarrett/workload-identity-sidecar:sha-${{ github.sha }}
+      context: sidecar
+      cache-scope: workload-identity-sidecar
